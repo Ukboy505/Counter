@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Counter dApp</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        #status {
+            margin: 20px 0;
+            color: #666;
+        }
+        #events {
+            margin-top: 20px;
+            text-align: left;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Counter dApp</h1>
+    <h2>Current Count: <span id="count">0</span></h2>
+    
+    <div>
+        <button onclick="increment()">Increment</button>
+        <button onclick="decrement()">Decrement</button>
+    </div>
+    
+    <div>
+        <input type="number" id="setValue" placeholder="Set new value">
+        <button onclick="setCount()">Set Count (Owner Only)</button>
+    </div>
+
+    <p id="status"></p>
+    
+    <div id="events">
+        <h3>Recent Events:</h3>
+        <div id="eventLog"></div>
+    </div>
+
+    <!-- Include Web3.js -->
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.7.4/dist/web3.min.js"></script>
+    <script>
+        // Contract ABI (Application Binary Interface)
+        const abi = [
+            {
+                "inputs": [],
+                "stateMutability": "nonpayable",
+                "type": "constructor"
+            },
+            {
+                "anonymous": false,
+                "inputs": [
+                    {
+                        "indexed": false,
+                        "internalType": "uint256",
+                        "name": "newCount",
+                        "type": "uint256"
+                    }
+                ],
+                "name": "CountChanged",
+                "type": "event"
+            },
+            {
+                "inputs": [],
+                "name": "count",
+                "outputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "",
+                        "type": "uint256"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "decrement",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "getCount",
+                "outputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "",
+                        "type": "uint256"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "increment",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "owner",
+                "outputs": [
+                    {
+                        "internalType": "address",
+                        "name": "",
+                        "type": "address"
+                    }
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {
+                        "internalType": "uint256",
+                        "name": "_count",
+                        "type": "uint256"
+                    }
+                ],
+                "name": "setCount",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            }
+        ];
+
+        // Replace with your deployed contract address
+        const contractAddress = "YOUR_CONTRACT_ADDRESS_HERE";
+        let web3;
+        let contract;
+        let accounts;
+
+        async function init() {
+            // Check if Web3 is injected by MetaMask
+            if (typeof window.ethereum !== 'undefined') {
+                web3 = new Web3(window.ethereum);
+                try {
+                    // Request account access
+                    accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    contract = new web3.eth.Contract(abi, contractAddress);
+                    
+                    // Initialize UI
+                    updateCount();
+                    setupEventListeners();
+                    document.getElementById('status').innerText = "Connected to MetaMask";
+                } catch (error) {
+                    console.error(error);
+                    document.getElementById('status').innerText = "Failed to connect to MetaMask";
+                }
+            } else {
+                document.getElementById('status').innerText = "Please install MetaMask";
+            }
+        }
+
+        async function updateCount() {
+            try {
+                const count = await contract.methods.getCount().call();
+                document.getElementById('count').innerText = count;
+            } catch (error) {
+                console.error(error);
+                document.getElementById('status').innerText = "Error updating count";
+            }
+        }
+
+        function setupEventListeners() {
+            // Listen for CountChanged events
+            contract.events.CountChanged({
+                fromBlock: 'latest'
+            })
+            .on('data', (event) => {
+                const newCount = event.returnValues.newCount;
+                updateCount(); // Update the displayed count
+                addEventToLog(`Count changed to ${newCount} at ${new Date().toLocaleTimeString()}`);
+            })
+            .on('error', (error) => {
+                console.error('Event listener error:', error);
+                document.getElementById('status').innerText = "Error in event listener";
+            });
+
+            // Listen for account changes in MetaMask
+            window.ethereum.on('accountsChanged', async (newAccounts) => {
+                accounts = newAccounts;
+                await updateCount();
+                document.getElementById('status').innerText = "Account changed";
+            });
+
+            // Listen for chain changes
+            window.ethereum.on('chainChanged', () => {
+                window.location.reload();
+            });
+        }
+
+        function addEventToLog(message) {
+            const eventLog = document.getElementById('eventLog');
+            const eventEntry = document.createElement('p');
+            eventEntry.textContent = message;
+            eventLog.insertBefore(eventEntry, eventLog.firstChild); // Add new events at the top
+            
+            // Keep only last 5 events
+            while (eventLog.children.length > 5) {
+                eventLog.removeChild(eventLog.lastChild);
+            }
+        }
+
+        async function increment() {
+            try {
+                document.getElementById('status').innerText = "Transaction pending...";
+                await contract.methods.increment().send({ from: accounts[0] });
+                document.getElementById('status').innerText = "Increment successful";
+            } catch (error) {
+                console.error(error);
+                document.getElementById('status').innerText = "Increment failed";
+            }
+        }
+
+        async function decrement() {
+            try {
+                document.getElementById('status').innerText = "Transaction pending...";
+                await contract.methods.decrement().send({ from: accounts[0] });
+                document.getElementById('status').innerText = "Decrement successful";
+            } catch (error) {
+                console.error(error);
+                document.getElementById('status').innerText = "Decrement failed";
+            }
+        }
+
+        async function setCount() {
+            try {
+                const newValue = document.getElementById('setValue').value;
+                document.getElementById('status').innerText = "Transaction pending...";
+                await contract.methods.setCount(newValue).send({ from: accounts[0] });
+                document.getElementById('status').innerText = "Set count successful";
+            } catch (error) {
+                console.error(error);
+                document.getElementById('status').innerText = "Set count failed - Are you the owner?";
+            }
+        }
+
+        // Initialize the dApp when the page loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
